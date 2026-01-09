@@ -18,6 +18,18 @@ interface StateGridProps {
   showExcluded: boolean;
 }
 
+// Color palettes for variety
+const stateColors = [
+  { bg: "from-rose-50 to-pink-100", border: "border-l-rose-500", accent: "bg-rose-500" },
+  { bg: "from-orange-50 to-amber-100", border: "border-l-orange-500", accent: "bg-orange-500" },
+  { bg: "from-yellow-50 to-lime-100", border: "border-l-yellow-500", accent: "bg-yellow-500" },
+  { bg: "from-emerald-50 to-green-100", border: "border-l-emerald-500", accent: "bg-emerald-500" },
+  { bg: "from-teal-50 to-cyan-100", border: "border-l-teal-500", accent: "bg-teal-500" },
+  { bg: "from-sky-50 to-blue-100", border: "border-l-sky-500", accent: "bg-sky-500" },
+  { bg: "from-indigo-50 to-violet-100", border: "border-l-indigo-500", accent: "bg-indigo-500" },
+  { bg: "from-purple-50 to-fuchsia-100", border: "border-l-purple-500", accent: "bg-purple-500" },
+];
+
 export function StateGrid({
   resourcePools,
   program,
@@ -54,7 +66,7 @@ export function StateGrid({
 
   if (filteredPools.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
+      <div className="text-center py-12 text-muted-foreground bg-white/50 rounded-xl">
         No states found matching your search.
       </div>
     );
@@ -62,12 +74,13 @@ export function StateGrid({
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {filteredPools.map((pool) => {
+      {filteredPools.map((pool, index) => {
         const isExpanded = expandedStates.has(pool.state);
         const visibleUsers = showExcluded
           ? pool.users
           : pool.users.filter((u) => !isExcluded(u));
         const excludedInState = pool.users.filter((u) => isExcluded(u)).length;
+        const colorScheme = stateColors[index % stateColors.length];
 
         // Filter users by search query
         const query = searchQuery.toLowerCase();
@@ -78,15 +91,15 @@ export function StateGrid({
         return (
           <Card 
             key={pool.state} 
-            className={`h-fit transition-shadow hover:shadow-lg border-l-4 ${
-              program === "HRT" ? "border-l-emerald-500" : "border-l-sky-500"
-            }`}
+            className={`h-fit transition-all duration-300 hover:shadow-xl border-l-4 ${colorScheme.border} bg-gradient-to-br ${colorScheme.bg} hover:scale-[1.02]`}
           >
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <Link href={getStateRoute(program, pool.state)} className="flex-1">
                   <CardTitle className="flex items-center gap-2 text-lg hover:text-primary transition-colors">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <div className={`p-1.5 rounded-md ${colorScheme.accent} text-white`}>
+                      <MapPin className="h-3.5 w-3.5" />
+                    </div>
                     {pool.state}
                   </CardTitle>
                 </Link>
@@ -94,7 +107,7 @@ export function StateGrid({
                   variant="ghost"
                   size="sm"
                   onClick={() => toggleExpanded(pool.state)}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 hover:bg-white/50"
                 >
                   {isExpanded ? (
                     <ChevronUp className="h-4 w-4" />
@@ -110,7 +123,7 @@ export function StateGrid({
                 <span className="text-2xl font-bold">{visibleUsers.length}</span>
                 <span className="text-sm text-muted-foreground">users</span>
                 {excludedInState > 0 && !showExcluded && (
-                  <Badge variant="secondary" className="text-xs ml-auto">
+                  <Badge className="text-xs ml-auto bg-amber-500 hover:bg-amber-600 text-white">
                     +{excludedInState} excluded
                   </Badge>
                 )}
@@ -118,7 +131,7 @@ export function StateGrid({
 
               {/* Expandable user list */}
               {isExpanded && (
-                <div className="mt-3 pt-3 border-t space-y-1 max-h-64 overflow-y-auto">
+                <div className="mt-3 pt-3 border-t border-white/50 space-y-1 max-h-64 overflow-y-auto">
                   {filteredUsers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No users match your search</p>
                   ) : (
@@ -127,18 +140,24 @@ export function StateGrid({
                       return (
                         <div
                           key={`${user}-${idx}`}
-                          className={`flex items-center justify-between gap-2 p-2 rounded-md text-sm ${
-                            excluded ? "bg-amber-50 dark:bg-amber-950/20" : "hover:bg-muted/50"
+                          className={`flex items-center justify-between gap-2 p-2 rounded-md text-sm transition-colors ${
+                            excluded 
+                              ? "bg-amber-100/80 border border-amber-300" 
+                              : "bg-white/60 hover:bg-white/80"
                           }`}
                         >
-                          <span className={excluded ? "text-muted-foreground" : ""}>
+                          <span className={excluded ? "text-amber-700 line-through" : "font-medium"}>
                             {user}
                           </span>
                           <Button
-                            variant="ghost"
+                            variant={excluded ? "default" : "outline"}
                             size="sm"
                             onClick={() => toggleExcluded(user)}
-                            className="h-6 px-2 text-xs"
+                            className={`h-6 px-2 text-xs ${
+                              excluded 
+                                ? "bg-emerald-500 hover:bg-emerald-600 text-white" 
+                                : "border-amber-400 text-amber-700 hover:bg-amber-100"
+                            }`}
                           >
                             {excluded ? (
                               <>
@@ -164,7 +183,7 @@ export function StateGrid({
                   variant="ghost"
                   size="sm"
                   onClick={() => toggleExpanded(pool.state)}
-                  className="w-full mt-2 text-xs text-muted-foreground"
+                  className="w-full mt-2 text-xs text-muted-foreground hover:bg-white/50"
                 >
                   Click to show users
                 </Button>
