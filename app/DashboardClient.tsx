@@ -13,7 +13,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { useExclusions } from "@/lib/useExclusions";
 import { ResourcePool, Program, ExclusionsData } from "@/lib/types";
 import { getAllUsersRoute } from "@/lib/route";
-import { Users, MapPin, UserX, LayoutGrid, BarChart3, Leaf, Pill } from "lucide-react";
+import { Users, MapPin, UserX, LayoutGrid, BarChart3, Leaf, Pill, Layers } from "lucide-react";
 
 interface DashboardClientProps {
   hrtPools: ResourcePool[];
@@ -118,6 +118,12 @@ export function DashboardClient({
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <Link href="/combined">
+                <Button variant="secondary" size="sm" className="gap-2 bg-white/20 hover:bg-white/30 text-white border-white/30">
+                  <Layers className="h-4 w-4" />
+                  Combined View
+                </Button>
+              </Link>
               <Link href="/reports">
                 <Button variant="secondary" size="sm" className="gap-2 bg-white/20 hover:bg-white/30 text-white border-white/30">
                   <BarChart3 className="h-4 w-4" />
