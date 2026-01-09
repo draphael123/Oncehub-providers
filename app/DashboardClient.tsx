@@ -31,6 +31,7 @@ export function DashboardClient({
   
   const {
     isExcluded,
+    toggleExcluded,
     showExcluded,
     setShowExcluded,
     excludedCount,
@@ -193,6 +194,7 @@ export function DashboardClient({
             program={activeProgram}
             searchQuery={searchQuery}
             isExcluded={isExcluded}
+            toggleExcluded={toggleExcluded}
             showExcluded={showExcluded}
           />
         </div>
