@@ -2,18 +2,18 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { ProgramTabs } from "@/components/ProgramTabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StateGrid } from "@/components/StateGrid";
 import { SearchBar } from "@/components/SearchBar";
 import { useExclusions } from "@/lib/useExclusions";
 import { ResourcePool, Program, ExclusionsData } from "@/lib/types";
 import { getAllUsersRoute } from "@/lib/route";
-import { Users, MapPin, UserX, LayoutGrid, BarChart3 } from "lucide-react";
+import { Users, MapPin, UserX, LayoutGrid, BarChart3, Leaf, Pill } from "lucide-react";
 
 interface DashboardClientProps {
   hrtPools: ResourcePool[];
@@ -26,7 +26,7 @@ export function DashboardClient({
   trtPools,
   serverExclusions,
 }: DashboardClientProps) {
-  const [activeProgram, setActiveProgram] = useState<Program>("HRT");
+  const [activeTab, setActiveTab] = useState<string>("both");
   const [searchQuery, setSearchQuery] = useState("");
   
   const {
@@ -38,20 +38,15 @@ export function DashboardClient({
     isLoaded,
   } = useExclusions(serverExclusions);
 
-  const activePools = activeProgram === "HRT" ? hrtPools : trtPools;
-
-  // Compute stats
-  const stats = useMemo(() => {
-    const totalStates = activePools.length;
-    
-    // Count users per state (excluding those excluded in that state)
+  // Compute stats for HRT
+  const hrtStats = useMemo(() => {
     let activeUserCount = 0;
     let excludedCount = 0;
     const uniqueActiveUsers = new Set<string>();
     
-    activePools.forEach((pool) => {
+    hrtPools.forEach((pool) => {
       pool.users.forEach((user) => {
-        if (isExcluded(user, pool.state, activeProgram)) {
+        if (isExcluded(user, pool.state, "HRT")) {
           excludedCount++;
         } else {
           activeUserCount++;
@@ -61,12 +56,37 @@ export function DashboardClient({
     });
 
     return {
-      totalStates,
+      totalStates: hrtPools.length,
       totalUsers: uniqueActiveUsers.size,
       activeUsers: activeUserCount,
-      excludedInProgram: excludedCount,
+      excludedCount,
     };
-  }, [activePools, activeProgram, isExcluded]);
+  }, [hrtPools, isExcluded]);
+
+  // Compute stats for TRT
+  const trtStats = useMemo(() => {
+    let activeUserCount = 0;
+    let excludedCount = 0;
+    const uniqueActiveUsers = new Set<string>();
+    
+    trtPools.forEach((pool) => {
+      pool.users.forEach((user) => {
+        if (isExcluded(user, pool.state, "TRT")) {
+          excludedCount++;
+        } else {
+          activeUserCount++;
+          uniqueActiveUsers.add(user);
+        }
+      });
+    });
+
+    return {
+      totalStates: trtPools.length,
+      totalUsers: uniqueActiveUsers.size,
+      activeUsers: activeUserCount,
+      excludedCount,
+    };
+  }, [trtPools, isExcluded]);
 
   // Show loading state until localStorage is loaded
   if (!isLoaded) {
@@ -77,13 +97,13 @@ export function DashboardClient({
     );
   }
 
-  const isHRT = activeProgram === "HRT";
-  const excludedCount = getTotalExcludedCount(activeProgram);
+  const hrtExcludedCount = getTotalExcludedCount("HRT");
+  const trtExcludedCount = getTotalExcludedCount("TRT");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
       {/* Header */}
-      <header className={`border-b sticky top-0 z-10 ${isHRT ? 'bg-gradient-to-r from-emerald-600 to-teal-600' : 'bg-gradient-to-r from-blue-600 to-indigo-600'} text-white shadow-lg`}>
+      <header className="border-b sticky top-0 z-10 bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white shadow-lg">
         <div className="container mx-auto px-4 py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
@@ -98,10 +118,6 @@ export function DashboardClient({
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <ProgramTabs
-                activeProgram={activeProgram}
-                onProgramChange={setActiveProgram}
-              />
               <Link href="/reports">
                 <Button variant="secondary" size="sm" className="gap-2 bg-white/20 hover:bg-white/30 text-white border-white/30">
                   <BarChart3 className="h-4 w-4" />
@@ -114,60 +130,79 @@ export function DashboardClient({
       </header>
 
       <main className="container mx-auto px-4 py-6 space-y-6">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="bg-gradient-to-br from-violet-500 to-purple-600 text-white border-0 shadow-lg shadow-purple-200">
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-white/20">
-                  <MapPin className="h-5 w-5" />
+        {/* Quick Links to Both Programs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Link href="/all/hrt">
+            <Card className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-0 shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] cursor-pointer">
+              <CardContent className="pt-6 pb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <Leaf className="h-8 w-8" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold">HRT Program</h2>
+                      <p className="text-white/80 text-sm">Hormone Replacement Therapy</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-4xl font-bold">{hrtStats.totalStates}</p>
+                    <p className="text-white/80 text-sm">States</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-3xl font-bold">{stats.totalStates}</p>
-                  <p className="text-xs text-white/80">States</p>
+                <div className="mt-4 pt-4 border-t border-white/20 flex gap-6">
+                  <div>
+                    <span className="text-2xl font-bold">{hrtStats.totalUsers}</span>
+                    <span className="text-white/80 text-sm ml-2">Users</span>
+                  </div>
+                  <div>
+                    <span className="text-2xl font-bold">{hrtStats.activeUsers}</span>
+                    <span className="text-white/80 text-sm ml-2">Active</span>
+                  </div>
+                  <div>
+                    <span className="text-2xl font-bold">{hrtStats.excludedCount}</span>
+                    <span className="text-white/80 text-sm ml-2">Excluded</span>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-emerald-500 to-green-600 text-white border-0 shadow-lg shadow-emerald-200">
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-white/20">
-                  <Users className="h-5 w-5" />
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/all/trt">
+            <Card className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white border-0 shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] cursor-pointer">
+              <CardContent className="pt-6 pb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <Pill className="h-8 w-8" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold">TRT Program</h2>
+                      <p className="text-white/80 text-sm">Testosterone Replacement Therapy</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-4xl font-bold">{trtStats.totalStates}</p>
+                    <p className="text-white/80 text-sm">States</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-3xl font-bold">{stats.totalUsers}</p>
-                  <p className="text-xs text-white/80">Unique Users</p>
+                <div className="mt-4 pt-4 border-t border-white/20 flex gap-6">
+                  <div>
+                    <span className="text-2xl font-bold">{trtStats.totalUsers}</span>
+                    <span className="text-white/80 text-sm ml-2">Users</span>
+                  </div>
+                  <div>
+                    <span className="text-2xl font-bold">{trtStats.activeUsers}</span>
+                    <span className="text-white/80 text-sm ml-2">Active</span>
+                  </div>
+                  <div>
+                    <span className="text-2xl font-bold">{trtStats.excludedCount}</span>
+                    <span className="text-white/80 text-sm ml-2">Excluded</span>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-lg shadow-amber-200">
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-white/20">
-                  <UserX className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-3xl font-bold">{stats.excludedInProgram}</p>
-                  <p className="text-xs text-white/80">Excluded Assignments</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-blue-500 to-cyan-600 text-white border-0 shadow-lg shadow-blue-200">
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-white/20">
-                  <LayoutGrid className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-3xl font-bold">{stats.activeUsers}</p>
-                  <p className="text-xs text-white/80">Active Assignments</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
 
         {/* Controls */}
@@ -178,7 +213,7 @@ export function DashboardClient({
                 <SearchBar
                   value={searchQuery}
                   onChange={setSearchQuery}
-                  placeholder={`Search ${activeProgram} users or states...`}
+                  placeholder="Search users or states..."
                 />
               </div>
               <div className="flex items-center gap-4">
@@ -190,44 +225,147 @@ export function DashboardClient({
                   />
                   <Label htmlFor="show-excluded" className="text-sm cursor-pointer text-amber-800">
                     Show excluded
-                    {excludedCount > 0 && (
+                    {(hrtExcludedCount + trtExcludedCount) > 0 && (
                       <Badge className="ml-2 bg-amber-500 hover:bg-amber-600">
-                        {excludedCount}
+                        {hrtExcludedCount + trtExcludedCount}
                       </Badge>
                     )}
                   </Label>
                 </div>
-                <Link href={getAllUsersRoute(activeProgram)}>
-                  <Button variant="outline" size="sm" className={`${isHRT ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50' : 'border-blue-300 text-blue-700 hover:bg-blue-50'}`}>
-                    View All Users
-                  </Button>
-                </Link>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* State Grid */}
-        <div>
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Badge 
-              className={`${isHRT ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
-            >
-              {activeProgram}
-            </Badge>
-            <span className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-              Resource Pools
-            </span>
-          </h2>
-          <StateGrid
-            resourcePools={activePools}
-            program={activeProgram}
-            searchQuery={searchQuery}
-            isExcluded={isExcluded}
-            toggleExcluded={toggleExcluded}
-            showExcluded={showExcluded}
-          />
-        </div>
+        {/* Tabbed Content for Both/HRT/TRT */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="grid w-full max-w-md grid-cols-3 mx-auto">
+            <TabsTrigger value="both" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+              Both Programs
+            </TabsTrigger>
+            <TabsTrigger value="hrt" className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
+              HRT Only
+            </TabsTrigger>
+            <TabsTrigger value="trt" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+              TRT Only
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Both Programs */}
+          <TabsContent value="both" className="space-y-8">
+            {/* HRT Section */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm px-3 py-1">
+                    <Leaf className="h-4 w-4 mr-1" />
+                    HRT
+                  </Badge>
+                  <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                    Resource Pools
+                  </span>
+                </h2>
+                <Link href={getAllUsersRoute("HRT")}>
+                  <Button variant="outline" size="sm" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+                    View All HRT Users
+                  </Button>
+                </Link>
+              </div>
+              <StateGrid
+                resourcePools={hrtPools}
+                program="HRT"
+                searchQuery={searchQuery}
+                isExcluded={isExcluded}
+                toggleExcluded={toggleExcluded}
+                showExcluded={showExcluded}
+              />
+            </div>
+
+            {/* TRT Section */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Badge className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1">
+                    <Pill className="h-4 w-4 mr-1" />
+                    TRT
+                  </Badge>
+                  <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                    Resource Pools
+                  </span>
+                </h2>
+                <Link href={getAllUsersRoute("TRT")}>
+                  <Button variant="outline" size="sm" className="border-blue-300 text-blue-700 hover:bg-blue-50">
+                    View All TRT Users
+                  </Button>
+                </Link>
+              </div>
+              <StateGrid
+                resourcePools={trtPools}
+                program="TRT"
+                searchQuery={searchQuery}
+                isExcluded={isExcluded}
+                toggleExcluded={toggleExcluded}
+                showExcluded={showExcluded}
+              />
+            </div>
+          </TabsContent>
+
+          {/* HRT Only */}
+          <TabsContent value="hrt">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm px-3 py-1">
+                  <Leaf className="h-4 w-4 mr-1" />
+                  HRT
+                </Badge>
+                <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                  Resource Pools
+                </span>
+              </h2>
+              <Link href={getAllUsersRoute("HRT")}>
+                <Button variant="outline" size="sm" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+                  View All HRT Users
+                </Button>
+              </Link>
+            </div>
+            <StateGrid
+              resourcePools={hrtPools}
+              program="HRT"
+              searchQuery={searchQuery}
+              isExcluded={isExcluded}
+              toggleExcluded={toggleExcluded}
+              showExcluded={showExcluded}
+            />
+          </TabsContent>
+
+          {/* TRT Only */}
+          <TabsContent value="trt">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Badge className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1">
+                  <Pill className="h-4 w-4 mr-1" />
+                  TRT
+                </Badge>
+                <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                  Resource Pools
+                </span>
+              </h2>
+              <Link href={getAllUsersRoute("TRT")}>
+                <Button variant="outline" size="sm" className="border-blue-300 text-blue-700 hover:bg-blue-50">
+                  View All TRT Users
+                </Button>
+              </Link>
+            </div>
+            <StateGrid
+              resourcePools={trtPools}
+              program="TRT"
+              searchQuery={searchQuery}
+              isExcluded={isExcluded}
+              toggleExcluded={toggleExcluded}
+              showExcluded={showExcluded}
+            />
+          </TabsContent>
+        </Tabs>
       </main>
 
       {/* Footer */}
