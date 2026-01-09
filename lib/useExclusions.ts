@@ -1,29 +1,28 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ExclusionsData } from "./types";
+import { ExclusionsData, Program, StateExclusion } from "./types";
 
-const LOCAL_STORAGE_KEY = "resourcePoolViewer_exclusions";
+const LOCAL_STORAGE_KEY = "resourcePoolViewer_stateExclusions";
 
 interface UseExclusionsReturn {
-  isExcluded: (name: string) => boolean;
-  toggleExcluded: (name: string) => void;
+  isExcluded: (name: string, state?: string, program?: Program) => boolean;
+  toggleExcluded: (name: string, state: string, program: Program) => void;
   showExcluded: boolean;
   setShowExcluded: (show: boolean) => void;
-  excludedCount: number;
-  allExcludedNames: string[];
+  getExcludedCountForState: (state: string, program: Program) => number;
+  getTotalExcludedCount: (program: Program) => number;
   isLoaded: boolean;
 }
 
 /**
  * Hook for managing user exclusions.
- * Merges server-side exclusions.json with localStorage overrides.
- * localStorage wins for conflicts.
+ * Now supports per-state exclusions.
  */
 export function useExclusions(
   serverExclusions: ExclusionsData
 ): UseExclusionsReturn {
-  const [localOverrides, setLocalOverrides] = useState<Record<string, boolean>>({});
+  const [localOverrides, setLocalOverrides] = useState<StateExclusion[]>([]);
   const [showExcluded, setShowExcluded] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -33,7 +32,7 @@ export function useExclusions(
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (typeof parsed === "object" && parsed !== null) {
+        if (Array.isArray(parsed)) {
           setLocalOverrides(parsed);
         }
       }
@@ -54,80 +53,125 @@ export function useExclusions(
     }
   }, [localOverrides, isLoaded]);
 
-  // Compute merged exclusion set
-  const allExcludedNames = useMemo(() => {
-    const excluded = new Set<string>();
+  // Merge server exclusions with local overrides
+  const allExclusions = useMemo(() => {
+    const exclusions: StateExclusion[] = [
+      ...(serverExclusions.stateExclusions || []),
+    ];
     
-    // Add server exclusions first
-    serverExclusions.excludedUsers.forEach((name) => {
-      excluded.add(name.toLowerCase());
-    });
-    
-    // Apply localStorage overrides (true = excluded, false = included)
-    Object.entries(localOverrides).forEach(([name, isExcluded]) => {
-      const lowerName = name.toLowerCase();
-      if (isExcluded) {
-        excluded.add(lowerName);
-      } else {
-        excluded.delete(lowerName);
-      }
-    });
-    
-    return Array.from(excluded);
-  }, [serverExclusions.excludedUsers, localOverrides]);
+    // Local overrides can add or remove exclusions
+    // We track "removed" exclusions separately
+    return {
+      serverExclusions: exclusions,
+      localOverrides,
+    };
+  }, [serverExclusions.stateExclusions, localOverrides]);
 
   const isExcluded = useCallback(
-    (name: string): boolean => {
-      const lowerName = name.toLowerCase();
+    (name: string, state?: string, program?: Program): boolean => {
+      const lowerName = name.toLowerCase().trim();
       
-      // Check localStorage override first
-      const overrideKey = Object.keys(localOverrides).find(
-        (k) => k.toLowerCase() === lowerName
-      );
-      if (overrideKey !== undefined) {
-        return localOverrides[overrideKey];
+      // If no state provided, check if excluded in ANY state (for global views)
+      if (!state || !program) {
+        // Check server state exclusions
+        const serverExcluded = allExclusions.serverExclusions.some(
+          (e) => e.user.toLowerCase().trim() === lowerName
+        );
+        
+        // Check local overrides
+        const localExcluded = localOverrides.some(
+          (e) => e.user.toLowerCase().trim() === lowerName
+        );
+        
+        return serverExcluded || localExcluded;
       }
       
-      // Fall back to server exclusions
-      return serverExclusions.excludedUsers.some(
-        (excluded) => excluded.toLowerCase() === lowerName
+      // Check if excluded for specific state
+      const key = `${program}-${state}-${lowerName}`;
+      
+      // Check local overrides first (they take precedence)
+      const localOverride = localOverrides.find(
+        (e) => 
+          e.program === program && 
+          e.state === state && 
+          e.user.toLowerCase().trim() === lowerName
       );
+      
+      if (localOverride !== undefined) {
+        return true; // Local override says excluded
+      }
+      
+      // Check server exclusions
+      const serverExcluded = allExclusions.serverExclusions.some(
+        (e) => 
+          e.program === program && 
+          e.state === state && 
+          e.user.toLowerCase().trim() === lowerName
+      );
+      
+      return serverExcluded;
     },
-    [localOverrides, serverExclusions.excludedUsers]
+    [allExclusions, localOverrides]
   );
 
-  const toggleExcluded = useCallback((name: string): void => {
+  const toggleExcluded = useCallback((name: string, state: string, program: Program): void => {
     setLocalOverrides((prev) => {
-      const currentlyExcluded = (() => {
-        const lowerName = name.toLowerCase();
-        const overrideKey = Object.keys(prev).find(
-          (k) => k.toLowerCase() === lowerName
-        );
-        if (overrideKey !== undefined) {
-          return prev[overrideKey];
-        }
-        return serverExclusions.excludedUsers.some(
-          (excluded) => excluded.toLowerCase() === lowerName
-        );
-      })();
+      const lowerName = name.toLowerCase().trim();
+      const existingIndex = prev.findIndex(
+        (e) => 
+          e.program === program && 
+          e.state === state && 
+          e.user.toLowerCase().trim() === lowerName
+      );
       
-      return {
-        ...prev,
-        [name]: !currentlyExcluded,
-      };
+      if (existingIndex >= 0) {
+        // Remove the override (toggle off)
+        return prev.filter((_, i) => i !== existingIndex);
+      } else {
+        // Add new exclusion
+        return [...prev, { program, state, user: name }];
+      }
     });
-  }, [serverExclusions.excludedUsers]);
+  }, []);
 
-  const excludedCount = allExcludedNames.length;
+  const getExcludedCountForState = useCallback(
+    (state: string, program: Program): number => {
+      const serverCount = allExclusions.serverExclusions.filter(
+        (e) => e.program === program && e.state === state
+      ).length;
+      
+      const localCount = localOverrides.filter(
+        (e) => e.program === program && e.state === state
+      ).length;
+      
+      // This is a rough count - proper deduplication would require user list
+      return serverCount + localCount;
+    },
+    [allExclusions, localOverrides]
+  );
+
+  const getTotalExcludedCount = useCallback(
+    (program: Program): number => {
+      const serverCount = allExclusions.serverExclusions.filter(
+        (e) => e.program === program
+      ).length;
+      
+      const localCount = localOverrides.filter(
+        (e) => e.program === program
+      ).length;
+      
+      return serverCount + localCount;
+    },
+    [allExclusions, localOverrides]
+  );
 
   return {
     isExcluded,
     toggleExcluded,
     showExcluded,
     setShowExcluded,
-    excludedCount,
-    allExcludedNames,
+    getExcludedCountForState,
+    getTotalExcludedCount,
     isLoaded,
   };
 }
-

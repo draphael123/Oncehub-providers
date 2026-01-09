@@ -13,8 +13,8 @@ interface StateGridProps {
   resourcePools: ResourcePool[];
   program: Program;
   searchQuery: string;
-  isExcluded: (name: string) => boolean;
-  toggleExcluded: (name: string) => void;
+  isExcluded: (name: string, state?: string, program?: Program) => boolean;
+  toggleExcluded: (name: string, state: string, program: Program) => void;
   showExcluded: boolean;
 }
 
@@ -76,10 +76,12 @@ export function StateGrid({
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {filteredPools.map((pool, index) => {
         const isExpanded = expandedStates.has(pool.state);
+        
+        // Check exclusion per state
         const visibleUsers = showExcluded
           ? pool.users
-          : pool.users.filter((u) => !isExcluded(u));
-        const excludedInState = pool.users.filter((u) => isExcluded(u)).length;
+          : pool.users.filter((u) => !isExcluded(u, pool.state, program));
+        const excludedInState = pool.users.filter((u) => isExcluded(u, pool.state, program)).length;
         const colorScheme = stateColors[index % stateColors.length];
 
         // Filter users by search query
@@ -136,7 +138,7 @@ export function StateGrid({
                     <p className="text-sm text-muted-foreground">No users match your search</p>
                   ) : (
                     filteredUsers.map((user, idx) => {
-                      const excluded = isExcluded(user);
+                      const excluded = isExcluded(user, pool.state, program);
                       return (
                         <div
                           key={`${user}-${idx}`}
@@ -152,7 +154,7 @@ export function StateGrid({
                           <Button
                             variant={excluded ? "default" : "outline"}
                             size="sm"
-                            onClick={() => toggleExcluded(user)}
+                            onClick={() => toggleExcluded(user, pool.state, program)}
                             className={`h-6 px-2 text-xs ${
                               excluded 
                                 ? "bg-emerald-500 hover:bg-emerald-600 text-white" 

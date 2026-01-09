@@ -6,8 +6,15 @@ export interface ResourcePool {
   users: string[];
 }
 
+export interface StateExclusion {
+  program: Program;
+  state: string;
+  user: string;
+}
+
 export interface ExclusionsData {
-  excludedUsers: string[];
+  excludedUsers: string[]; // Global exclusions (legacy, keep for backwards compat)
+  stateExclusions: StateExclusion[]; // Per-state exclusions
 }
 
 export interface UserEntry {
@@ -15,4 +22,3 @@ export interface UserEntry {
   state: string;
   isExcluded: boolean;
 }
-

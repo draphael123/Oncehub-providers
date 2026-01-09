@@ -42,14 +42,14 @@ export function StateDetailClient({
     return [...new Set(pool.users)];
   }, [pool.users, showDuplicates]);
 
-  // Filter and map users
+  // Filter and map users - using state-specific exclusion check
   const filteredUsers = useMemo(() => {
     const query = searchQuery.toLowerCase();
     
     return baseUsers
       .map((name) => ({
         name,
-        isExcluded: isExcluded(name),
+        isExcluded: isExcluded(name, pool.state, pool.program),
       }))
       .filter((user) => {
         // Filter by search
@@ -63,15 +63,15 @@ export function StateDetailClient({
         return true;
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [baseUsers, searchQuery, isExcluded, showExcluded]);
+  }, [baseUsers, searchQuery, isExcluded, showExcluded, pool.state, pool.program]);
 
   // Stats
   const stats = useMemo(() => {
     const total = baseUsers.length;
-    const excluded = baseUsers.filter((u) => isExcluded(u)).length;
+    const excluded = baseUsers.filter((u) => isExcluded(u, pool.state, pool.program)).length;
     const active = total - excluded;
     return { total, excluded, active };
-  }, [baseUsers, isExcluded]);
+  }, [baseUsers, isExcluded, pool.state, pool.program]);
 
   // Export data
   const exportData = useMemo(() => {
@@ -81,39 +81,39 @@ export function StateDetailClient({
     }));
   }, [filteredUsers]);
 
+  // Handle toggle with state context
+  const handleToggleExcluded = (name: string) => {
+    toggleExcluded(name, pool.state, pool.program);
+  };
+
   if (!isLoaded) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex items-center justify-center">
+        <div className="text-muted-foreground animate-pulse">Loading...</div>
       </div>
     );
   }
 
+  const isHRT = pool.program === "HRT";
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
       {/* Header */}
-      <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
+      <header className={`border-b sticky top-0 z-10 ${isHRT ? 'bg-gradient-to-r from-emerald-600 to-teal-600' : 'bg-gradient-to-r from-blue-600 to-indigo-600'} text-white shadow-lg`}>
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <Link href="/">
-              <Button variant="ghost" size="sm" className="gap-2">
+              <Button variant="ghost" size="sm" className="gap-2 text-white hover:bg-white/20">
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
             </Link>
             <div className="flex items-center gap-3">
-              <Badge
-                variant="outline"
-                className={
-                  pool.program === "HRT"
-                    ? "border-emerald-500 text-emerald-600"
-                    : "border-sky-500 text-sky-600"
-                }
-              >
+              <Badge className={`${isHRT ? 'bg-emerald-700' : 'bg-blue-700'}`}>
                 {pool.program}
               </Badge>
               <h1 className="text-xl font-bold flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-muted-foreground" />
+                <MapPin className="h-5 w-5" />
                 {pool.state}
               </h1>
             </div>
@@ -124,41 +124,41 @@ export function StateDetailClient({
       <main className="container mx-auto px-4 py-6 space-y-6">
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
-          <Card>
+          <Card className="bg-gradient-to-br from-violet-500 to-purple-600 text-white border-0 shadow-lg">
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Users className="h-5 w-5 text-primary" />
+                <div className="p-2 rounded-lg bg-white/20">
+                  <Users className="h-5 w-5" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{stats.total}</p>
-                  <p className="text-xs text-muted-foreground">Total Users</p>
+                  <p className="text-xs text-white/80">Total Users</p>
                 </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="bg-gradient-to-br from-emerald-500 to-green-600 text-white border-0 shadow-lg">
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-500/10">
-                  <Users className="h-5 w-5 text-emerald-600" />
+                <div className="p-2 rounded-lg bg-white/20">
+                  <Users className="h-5 w-5" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{stats.active}</p>
-                  <p className="text-xs text-muted-foreground">Active</p>
+                  <p className="text-xs text-white/80">Active</p>
                 </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="bg-gradient-to-br from-amber-500 to-orange-600 text-white border-0 shadow-lg">
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-500/10">
-                  <UserX className="h-5 w-5 text-amber-600" />
+                <div className="p-2 rounded-lg bg-white/20">
+                  <UserX className="h-5 w-5" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{stats.excluded}</p>
-                  <p className="text-xs text-muted-foreground">Excluded</p>
+                  <p className="text-xs text-white/80">Excluded</p>
                 </div>
               </div>
             </CardContent>
@@ -166,41 +166,45 @@ export function StateDetailClient({
         </div>
 
         {/* Controls */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="w-full sm:w-80">
-            <SearchBar
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search users..."
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="show-excluded"
-                checked={showExcluded}
-                onCheckedChange={setShowExcluded}
-              />
-              <Label htmlFor="show-excluded" className="text-sm cursor-pointer">
-                Show excluded
-              </Label>
+        <Card className="border-0 shadow-md bg-white/80 backdrop-blur-sm">
+          <CardContent className="pt-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              <div className="w-full sm:w-80">
+                <SearchBar
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  placeholder="Search users..."
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
+                  <Switch
+                    id="show-excluded"
+                    checked={showExcluded}
+                    onCheckedChange={setShowExcluded}
+                  />
+                  <Label htmlFor="show-excluded" className="text-sm cursor-pointer text-amber-800">
+                    Show excluded
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200">
+                  <Switch
+                    id="show-duplicates"
+                    checked={showDuplicates}
+                    onCheckedChange={setShowDuplicates}
+                  />
+                  <Label htmlFor="show-duplicates" className="text-sm cursor-pointer text-blue-800">
+                    Show duplicates
+                  </Label>
+                </div>
+                <ExportButton
+                  users={exportData}
+                  filename={`${pool.program}_${pool.state.replace(/\s+/g, "_")}_users.csv`}
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="show-duplicates"
-                checked={showDuplicates}
-                onCheckedChange={setShowDuplicates}
-              />
-              <Label htmlFor="show-duplicates" className="text-sm cursor-pointer">
-                Show duplicates
-              </Label>
-            </div>
-            <ExportButton
-              users={exportData}
-              filename={`${pool.program}_${pool.state.replace(/\s+/g, "_")}_users.csv`}
-            />
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Results info */}
         <div className="text-sm text-muted-foreground">
@@ -211,10 +215,9 @@ export function StateDetailClient({
         {/* User Table */}
         <UserTable
           users={filteredUsers}
-          onToggleExcluded={toggleExcluded}
+          onToggleExcluded={handleToggleExcluded}
         />
       </main>
     </div>
   );
 }
-

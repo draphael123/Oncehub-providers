@@ -45,14 +45,15 @@ export function ReportsClient({
 
   const activePools = activeProgram === "HRT" ? hrtPools : trtPools;
 
-  // Compute reports data
+  // Compute reports data with state-specific exclusions
   const reports = useMemo(() => {
-    // User state count map
+    // User state count map - only count non-excluded assignments
     const userStateCount: Map<string, Set<string>> = new Map();
     
     activePools.forEach((pool) => {
       pool.users.forEach((user) => {
-        if (!isExcluded(user)) {
+        // Check if user is excluded for THIS specific state
+        if (!isExcluded(user, pool.state, activeProgram)) {
           if (!userStateCount.has(user)) {
             userStateCount.set(user, new Set());
           }
@@ -68,22 +69,22 @@ export function ReportsClient({
       states: Array.from(states).sort(),
     }));
 
-    // Users in most states (top 10)
+    // Users in most states (top 15)
     const usersInMostStates = [...userStates]
       .sort((a, b) => b.stateCount - a.stateCount)
       .slice(0, 15);
 
-    // Users in fewest states (bottom 10, excluding single state)
+    // Users in fewest states (bottom 15)
     const usersInFewestStates = [...userStates]
       .filter((u) => u.stateCount >= 1)
       .sort((a, b) => a.stateCount - b.stateCount)
       .slice(0, 15);
 
-    // States by user count
+    // States by user count (excluding per-state exclusions)
     const stateUserCounts = activePools
       .map((pool) => ({
         state: pool.state,
-        userCount: pool.users.filter((u) => !isExcluded(u)).length,
+        userCount: pool.users.filter((u) => !isExcluded(u, pool.state, activeProgram)).length,
         totalCount: pool.users.length,
       }))
       .sort((a, b) => b.userCount - a.userCount);
@@ -115,7 +116,7 @@ export function ReportsClient({
       avgUsersPerState,
       totalStates: activePools.length,
     };
-  }, [activePools, isExcluded]);
+  }, [activePools, activeProgram, isExcluded]);
 
   if (!isLoaded) {
     return (
@@ -148,7 +149,7 @@ export function ReportsClient({
                   Reports & Analytics
                 </h1>
                 <p className="text-sm text-white/80 mt-1">
-                  Insights into resource pool distribution
+                  Insights into resource pool distribution (excludes highlighted/backup providers per state)
                 </p>
               </div>
             </div>
@@ -171,7 +172,7 @@ export function ReportsClient({
                 </div>
                 <div>
                   <p className="text-3xl font-bold">{reports.totalUniqueUsers}</p>
-                  <p className="text-xs text-white/80">Total Users</p>
+                  <p className="text-xs text-white/80">Active Users</p>
                 </div>
               </div>
             </CardContent>
@@ -385,11 +386,10 @@ export function ReportsClient({
       <footer className="border-t mt-12 bg-white/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <p className="text-xs text-center text-muted-foreground">
-            Resource Pool Viewer • Reports exclude users marked as excluded
+            Resource Pool Viewer • Reports exclude highlighted/backup providers per state
           </p>
         </div>
       </footer>
     </div>
   );
 }
-

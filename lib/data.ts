@@ -32,10 +32,11 @@ export function loadExclusions(): ExclusionsData {
     const data = JSON.parse(content);
     return {
       excludedUsers: Array.isArray(data.excludedUsers) ? data.excludedUsers : [],
+      stateExclusions: Array.isArray(data.stateExclusions) ? data.stateExclusions : [],
     };
   } catch (error) {
     console.error("Error loading exclusions.json:", error);
-    return { excludedUsers: [] };
+    return { excludedUsers: [], stateExclusions: [] };
   }
 }
 
@@ -53,4 +54,3 @@ export function getAllProgramData(): {
     exclusions: loadExclusions(),
   };
 }
-

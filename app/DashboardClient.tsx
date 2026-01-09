@@ -34,7 +34,7 @@ export function DashboardClient({
     toggleExcluded,
     showExcluded,
     setShowExcluded,
-    excludedCount,
+    getTotalExcludedCount,
     isLoaded,
   } = useExclusions(serverExclusions);
 
@@ -43,19 +43,30 @@ export function DashboardClient({
   // Compute stats
   const stats = useMemo(() => {
     const totalStates = activePools.length;
-    const allUsers = activePools.flatMap((p) => p.users);
-    const uniqueUsers = new Set(allUsers);
-    const totalUsers = uniqueUsers.size;
-    const excludedInProgram = Array.from(uniqueUsers).filter((u) => isExcluded(u)).length;
-    const activeUsers = totalUsers - excludedInProgram;
+    
+    // Count users per state (excluding those excluded in that state)
+    let activeUserCount = 0;
+    let excludedCount = 0;
+    const uniqueActiveUsers = new Set<string>();
+    
+    activePools.forEach((pool) => {
+      pool.users.forEach((user) => {
+        if (isExcluded(user, pool.state, activeProgram)) {
+          excludedCount++;
+        } else {
+          activeUserCount++;
+          uniqueActiveUsers.add(user);
+        }
+      });
+    });
 
     return {
       totalStates,
-      totalUsers,
-      activeUsers,
-      excludedInProgram,
+      totalUsers: uniqueActiveUsers.size,
+      activeUsers: activeUserCount,
+      excludedInProgram: excludedCount,
     };
-  }, [activePools, isExcluded]);
+  }, [activePools, activeProgram, isExcluded]);
 
   // Show loading state until localStorage is loaded
   if (!isLoaded) {
@@ -67,6 +78,7 @@ export function DashboardClient({
   }
 
   const isHRT = activeProgram === "HRT";
+  const excludedCount = getTotalExcludedCount(activeProgram);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
@@ -124,8 +136,8 @@ export function DashboardClient({
                   <Users className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-3xl font-bold">{stats.activeUsers}</p>
-                  <p className="text-xs text-white/80">Active Users</p>
+                  <p className="text-3xl font-bold">{stats.totalUsers}</p>
+                  <p className="text-xs text-white/80">Unique Users</p>
                 </div>
               </div>
             </CardContent>
@@ -138,7 +150,7 @@ export function DashboardClient({
                 </div>
                 <div>
                   <p className="text-3xl font-bold">{stats.excludedInProgram}</p>
-                  <p className="text-xs text-white/80">Excluded</p>
+                  <p className="text-xs text-white/80">Excluded Assignments</p>
                 </div>
               </div>
             </CardContent>
@@ -150,8 +162,8 @@ export function DashboardClient({
                   <LayoutGrid className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-3xl font-bold">{stats.totalUsers}</p>
-                  <p className="text-xs text-white/80">Total Unique</p>
+                  <p className="text-3xl font-bold">{stats.activeUsers}</p>
+                  <p className="text-xs text-white/80">Active Assignments</p>
                 </div>
               </div>
             </CardContent>
@@ -222,7 +234,7 @@ export function DashboardClient({
       <footer className="border-t mt-12 bg-white/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <p className="text-xs text-center text-muted-foreground">
-            Resource Pool Viewer • Exclusion overrides stored in browser localStorage
+            Resource Pool Viewer • Exclusions are per-state • Overrides stored in browser localStorage
           </p>
         </div>
       </footer>
