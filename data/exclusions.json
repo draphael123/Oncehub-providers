@@ -1,7 +1,3 @@
 {
-  "excludedUsers": [
-    "John Smith",
-    "Patricia Moore"
-  ]
+  "excludedUsers": []
 }
-

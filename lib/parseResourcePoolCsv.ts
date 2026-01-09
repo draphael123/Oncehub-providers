@@ -1,9 +1,29 @@
 import Papa from "papaparse";
 import { ResourcePool, Program } from "./types";
-import { normalizeUserName, shouldIgnoreColumn, isValidUser, dedupeUsers } from "./normalize";
+import { normalizeUserName, isValidUser, dedupeUsers } from "./normalize";
+
+/**
+ * Check if a header should be ignored (Unnamed, blank, or key/legend text)
+ */
+function shouldIgnoreHeader(header: string): boolean {
+  if (!header || typeof header !== "string") return true;
+  const trimmed = header.trim().toLowerCase();
+  if (trimmed === "") return true;
+  if (trimmed.startsWith("unnamed")) return true;
+  if (trimmed === "key") return true;
+  if (trimmed.includes("please add")) return true;
+  if (trimmed.includes("pending")) return true;
+  if (trimmed.includes("provider has")) return true;
+  return false;
+}
 
 /**
  * Parse CSV content into ResourcePool array.
+ * Handles format where:
+ * - Row 1: State names (some columns empty for Initial/Follow up pairs)
+ * - Row 2: "Initial"/"Follow up" labels (skipped)
+ * - Row 3+: Provider names
+ * 
  * @param csvContent - Raw CSV string content
  * @param program - "HRT" or "TRT"
  * @returns Array of ResourcePool objects
@@ -11,7 +31,7 @@ import { normalizeUserName, shouldIgnoreColumn, isValidUser, dedupeUsers } from 
 export function parseResourcePoolCsv(csvContent: string, program: Program): ResourcePool[] {
   const result = Papa.parse<string[]>(csvContent, {
     header: false,
-    skipEmptyLines: true,
+    skipEmptyLines: false,
   });
 
   if (result.errors.length > 0) {
@@ -19,40 +39,64 @@ export function parseResourcePoolCsv(csvContent: string, program: Program): Reso
   }
 
   const rows = result.data;
-  if (rows.length === 0) {
+  if (rows.length < 3) {
     return [];
   }
 
-  // First row is headers
-  const headers = rows[0];
-  const dataRows = rows.slice(1);
+  // First row is state headers
+  const headerRow = rows[0];
+  // Second row is Initial/Follow up labels - skip it
+  // Data starts from row 3 (index 2)
+  const dataRows = rows.slice(2);
 
-  // Build a map of column index -> state name (only for valid columns)
-  const columnMap: Map<number, string> = new Map();
-  headers.forEach((header, index) => {
-    if (!shouldIgnoreColumn(header)) {
-      columnMap.set(index, header.trim());
+  // Build a map of column index -> state name
+  // For empty headers, inherit from the previous non-empty header (for Initial/Follow up pairs)
+  const columnToState: Map<number, string> = new Map();
+  let lastValidState = "";
+
+  headerRow.forEach((header, index) => {
+    const trimmed = header?.trim() || "";
+    
+    if (!shouldIgnoreHeader(trimmed) && trimmed !== "") {
+      // Clean up state name (remove trailing parenthetical notes)
+      let stateName = trimmed
+        .replace(/\s*\(.*\)\s*$/g, "") // Remove (no marketing) etc
+        .replace(/\s+/g, " ")
+        .trim();
+      
+      lastValidState = stateName;
+      columnToState.set(index, stateName);
+    } else if (trimmed === "" && lastValidState) {
+      // Empty column after a state - this is the "Follow up" column for that state
+      columnToState.set(index, lastValidState);
     }
   });
 
   // Collect users per state
   const stateUsersMap: Map<string, string[]> = new Map();
 
-  // Initialize empty arrays for each state
-  columnMap.forEach((state) => {
-    stateUsersMap.set(state, []);
-  });
-
   // Process each data row
   dataRows.forEach((row) => {
-    columnMap.forEach((state, colIndex) => {
+    if (!row || row.length === 0) return;
+    
+    columnToState.forEach((state, colIndex) => {
       const cellValue = row[colIndex];
       if (cellValue !== undefined && cellValue !== null) {
         const normalized = normalizeUserName(String(cellValue));
-        if (isValidUser(normalized)) {
-          const users = stateUsersMap.get(state)!;
-          users.push(normalized);
+        
+        // Skip invalid entries, legend text, and "Closed" markers
+        if (!isValidUser(normalized)) return;
+        const lower = normalized.toLowerCase();
+        if (lower === "closed" || lower.includes("please add") || lower === "key" || lower === "back-up") return;
+        
+        // Skip entries that look like legend/key text
+        if (lower.includes("pending") || lower.includes("provider has") || lower.includes("license")) return;
+        
+        // Get or create the users array for this state
+        if (!stateUsersMap.has(state)) {
+          stateUsersMap.set(state, []);
         }
+        stateUsersMap.get(state)!.push(normalized);
       }
     });
   });
@@ -60,13 +104,17 @@ export function parseResourcePoolCsv(csvContent: string, program: Program): Reso
   // Convert map to array of ResourcePool objects
   const resourcePools: ResourcePool[] = [];
   stateUsersMap.forEach((users, state) => {
-    // De-duplicate by default in the parsed data
+    // De-duplicate users within each state
     const dedupedUsers = dedupeUsers(users);
-    resourcePools.push({
-      program,
-      state,
-      users: dedupedUsers,
-    });
+    
+    // Only include states with at least one user
+    if (dedupedUsers.length > 0) {
+      resourcePools.push({
+        program,
+        state,
+        users: dedupedUsers,
+      });
+    }
   });
 
   // Sort by state name
@@ -115,4 +163,3 @@ export function getAllUsers(
 
   return allUsers;
 }
-

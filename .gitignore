@@ -42,3 +42,5 @@ next-env.d.ts
 
 # Keep data files tracked
 !/data/
+
+.vercel
