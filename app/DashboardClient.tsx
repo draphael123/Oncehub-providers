@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { useExclusions } from "@/lib/useExclusions";
 import { ResourcePool, Program, ExclusionsData } from "@/lib/types";
 import { getAllUsersRoute } from "@/lib/route";
-import { Users, MapPin, UserX, LayoutGrid, BarChart3, Leaf, Pill, Layers } from "lucide-react";
+import { Users, MapPin, UserX, LayoutGrid, BarChart3, Leaf, Pill, Layers, UserPlus2, RefreshCw } from "lucide-react";
 
 interface DashboardClientProps {
   hrtPools: ResourcePool[];
@@ -40,55 +40,70 @@ export function DashboardClient({
 
   // Compute stats for HRT
   const hrtStats = useMemo(() => {
-    let activeUserCount = 0;
+    let initialCount = 0;
+    let followUpCount = 0;
     let excludedCount = 0;
-    const uniqueActiveUsers = new Set<string>();
+    const uniqueUsers = new Set<string>();
     
     hrtPools.forEach((pool) => {
       pool.users.forEach((user) => {
-        if (isExcluded(user, pool.state, "HRT")) {
+        if (isExcluded(user, pool.state, "HRT", pool.visitType)) {
           excludedCount++;
         } else {
-          activeUserCount++;
-          uniqueActiveUsers.add(user);
+          uniqueUsers.add(user);
+          if (pool.visitType === "Initial") {
+            initialCount++;
+          } else {
+            followUpCount++;
+          }
         }
       });
     });
 
+    const states = new Set(hrtPools.map(p => p.state));
+
     return {
-      totalStates: hrtPools.length,
-      totalUsers: uniqueActiveUsers.size,
-      activeUsers: activeUserCount,
+      totalStates: states.size,
+      totalUsers: uniqueUsers.size,
+      initialCount,
+      followUpCount,
       excludedCount,
     };
   }, [hrtPools, isExcluded]);
 
   // Compute stats for TRT
   const trtStats = useMemo(() => {
-    let activeUserCount = 0;
+    let initialCount = 0;
+    let followUpCount = 0;
     let excludedCount = 0;
-    const uniqueActiveUsers = new Set<string>();
+    const uniqueUsers = new Set<string>();
     
     trtPools.forEach((pool) => {
       pool.users.forEach((user) => {
-        if (isExcluded(user, pool.state, "TRT")) {
+        if (isExcluded(user, pool.state, "TRT", pool.visitType)) {
           excludedCount++;
         } else {
-          activeUserCount++;
-          uniqueActiveUsers.add(user);
+          uniqueUsers.add(user);
+          if (pool.visitType === "Initial") {
+            initialCount++;
+          } else {
+            followUpCount++;
+          }
         }
       });
     });
 
+    const states = new Set(trtPools.map(p => p.state));
+
     return {
-      totalStates: trtPools.length,
-      totalUsers: uniqueActiveUsers.size,
-      activeUsers: activeUserCount,
+      totalStates: states.size,
+      totalUsers: uniqueUsers.size,
+      initialCount,
+      followUpCount,
       excludedCount,
     };
   }, [trtPools, isExcluded]);
 
-  // Show loading state until localStorage is loaded
   if (!isLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex items-center justify-center">
@@ -156,18 +171,26 @@ export function DashboardClient({
                     <p className="text-white/80 text-sm">States</p>
                   </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-white/20 flex gap-6">
-                  <div>
-                    <span className="text-2xl font-bold">{hrtStats.totalUsers}</span>
-                    <span className="text-white/80 text-sm ml-2">Users</span>
+                <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-4 gap-2">
+                  <div className="text-center">
+                    <span className="text-xl font-bold">{hrtStats.totalUsers}</span>
+                    <p className="text-white/70 text-xs">Users</p>
                   </div>
-                  <div>
-                    <span className="text-2xl font-bold">{hrtStats.activeUsers}</span>
-                    <span className="text-white/80 text-sm ml-2">Active</span>
+                  <div className="text-center">
+                    <span className="text-xl font-bold flex items-center justify-center gap-1">
+                      <UserPlus2 className="h-4 w-4" />{hrtStats.initialCount}
+                    </span>
+                    <p className="text-white/70 text-xs">Initial</p>
                   </div>
-                  <div>
-                    <span className="text-2xl font-bold">{hrtStats.excludedCount}</span>
-                    <span className="text-white/80 text-sm ml-2">Excluded</span>
+                  <div className="text-center">
+                    <span className="text-xl font-bold flex items-center justify-center gap-1">
+                      <RefreshCw className="h-4 w-4" />{hrtStats.followUpCount}
+                    </span>
+                    <p className="text-white/70 text-xs">Follow Up</p>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-xl font-bold">{hrtStats.excludedCount}</span>
+                    <p className="text-white/70 text-xs">Excluded</p>
                   </div>
                 </div>
               </CardContent>
@@ -192,18 +215,26 @@ export function DashboardClient({
                     <p className="text-white/80 text-sm">States</p>
                   </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-white/20 flex gap-6">
-                  <div>
-                    <span className="text-2xl font-bold">{trtStats.totalUsers}</span>
-                    <span className="text-white/80 text-sm ml-2">Users</span>
+                <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-4 gap-2">
+                  <div className="text-center">
+                    <span className="text-xl font-bold">{trtStats.totalUsers}</span>
+                    <p className="text-white/70 text-xs">Users</p>
                   </div>
-                  <div>
-                    <span className="text-2xl font-bold">{trtStats.activeUsers}</span>
-                    <span className="text-white/80 text-sm ml-2">Active</span>
+                  <div className="text-center">
+                    <span className="text-xl font-bold flex items-center justify-center gap-1">
+                      <UserPlus2 className="h-4 w-4" />{trtStats.initialCount}
+                    </span>
+                    <p className="text-white/70 text-xs">Initial</p>
                   </div>
-                  <div>
-                    <span className="text-2xl font-bold">{trtStats.excludedCount}</span>
-                    <span className="text-white/80 text-sm ml-2">Excluded</span>
+                  <div className="text-center">
+                    <span className="text-xl font-bold flex items-center justify-center gap-1">
+                      <RefreshCw className="h-4 w-4" />{trtStats.followUpCount}
+                    </span>
+                    <p className="text-white/70 text-xs">Follow Up</p>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-xl font-bold">{trtStats.excludedCount}</span>
+                    <p className="text-white/70 text-xs">Excluded</p>
                   </div>
                 </div>
               </CardContent>
@@ -243,7 +274,7 @@ export function DashboardClient({
           </CardContent>
         </Card>
 
-        {/* Tabbed Content for Both/HRT/TRT */}
+        {/* Tabbed Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full max-w-md grid-cols-3 mx-auto">
             <TabsTrigger value="both" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white">
@@ -257,7 +288,6 @@ export function DashboardClient({
             </TabsTrigger>
           </TabsList>
 
-          {/* Both Programs */}
           <TabsContent value="both" className="space-y-8">
             {/* HRT Section */}
             <div>
@@ -316,7 +346,6 @@ export function DashboardClient({
             </div>
           </TabsContent>
 
-          {/* HRT Only */}
           <TabsContent value="hrt">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold flex items-center gap-2">
@@ -344,7 +373,6 @@ export function DashboardClient({
             />
           </TabsContent>
 
-          {/* TRT Only */}
           <TabsContent value="trt">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold flex items-center gap-2">
@@ -378,7 +406,7 @@ export function DashboardClient({
       <footer className="border-t mt-12 bg-white/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <p className="text-xs text-center text-muted-foreground">
-            Resource Pool Viewer • Exclusions are per-state • Overrides stored in browser localStorage
+            Resource Pool Viewer • Exclusions are per-state per-visit-type • Overrides stored in browser localStorage
           </p>
         </div>
       </footer>

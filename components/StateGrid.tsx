@@ -1,20 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ResourcePool, Program } from "@/lib/types";
+import { ResourcePool, Program, VisitType } from "@/lib/types";
 import { getStateRoute } from "@/lib/route";
-import { MapPin, Users, ChevronDown, ChevronUp, UserMinus, UserPlus } from "lucide-react";
+import { groupPoolsByState } from "@/lib/parseResourcePoolCsv";
+import { MapPin, Users, ChevronDown, ChevronUp, UserMinus, UserPlus, UserPlus2, RefreshCw } from "lucide-react";
 
 interface StateGridProps {
   resourcePools: ResourcePool[];
   program: Program;
   searchQuery: string;
-  isExcluded: (name: string, state?: string, program?: Program) => boolean;
-  toggleExcluded: (name: string, state: string, program: Program) => void;
+  isExcluded: (name: string, state?: string, program?: Program, visitType?: VisitType) => boolean;
+  toggleExcluded: (name: string, state: string, program: Program, visitType?: VisitType) => void;
   showExcluded: boolean;
 }
 
@@ -52,19 +53,29 @@ export function StateGrid({
     });
   };
 
-  // Filter states based on search (search in state name or user names)
-  const filteredPools = resourcePools.filter((pool) => {
-    const query = searchQuery.toLowerCase();
-    if (!query) return true;
-    
-    // Check if state name matches
-    if (pool.state.toLowerCase().includes(query)) return true;
-    
-    // Check if any user in the state matches
-    return pool.users.some((user) => user.toLowerCase().includes(query));
-  });
+  // Group pools by state
+  const groupedPools = useMemo(() => groupPoolsByState(resourcePools), [resourcePools]);
 
-  if (filteredPools.length === 0) {
+  // Filter states based on search
+  const filteredStates = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    const states = Array.from(groupedPools.keys());
+    
+    if (!query) return states;
+    
+    return states.filter((state) => {
+      if (state.toLowerCase().includes(query)) return true;
+      
+      const entry = groupedPools.get(state)!;
+      const allUsers = [
+        ...(entry.initial?.users || []),
+        ...(entry.followUp?.users || []),
+      ];
+      return allUsers.some((user) => user.toLowerCase().includes(query));
+    });
+  }, [groupedPools, searchQuery]);
+
+  if (filteredStates.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground bg-white/50 rounded-xl">
         No states found matching your search.
@@ -74,41 +85,48 @@ export function StateGrid({
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {filteredPools.map((pool, index) => {
-        const isExpanded = expandedStates.has(pool.state);
-        
-        // Check exclusion per state
-        const visibleUsers = showExcluded
-          ? pool.users
-          : pool.users.filter((u) => !isExcluded(u, pool.state, program));
-        const excludedInState = pool.users.filter((u) => isExcluded(u, pool.state, program)).length;
+      {filteredStates.map((state, index) => {
+        const entry = groupedPools.get(state)!;
+        const isExpanded = expandedStates.has(state);
         const colorScheme = stateColors[index % stateColors.length];
 
-        // Filter users by search query
+        // Get users for each visit type
+        const initialUsers = entry.initial?.users || [];
+        const followUpUsers = entry.followUp?.users || [];
+
+        // Filter by exclusion and search
         const query = searchQuery.toLowerCase();
-        const filteredUsers = query
-          ? visibleUsers.filter((u) => u.toLowerCase().includes(query))
-          : visibleUsers;
+        const getFilteredUsers = (users: string[], visitType: VisitType) => {
+          return users
+            .filter((u) => !query || u.toLowerCase().includes(query))
+            .filter((u) => showExcluded || !isExcluded(u, state, program, visitType));
+        };
+
+        const visibleInitial = getFilteredUsers(initialUsers, "Initial");
+        const visibleFollowUp = getFilteredUsers(followUpUsers, "Follow Up");
+        
+        const excludedInitial = initialUsers.filter((u) => isExcluded(u, state, program, "Initial")).length;
+        const excludedFollowUp = followUpUsers.filter((u) => isExcluded(u, state, program, "Follow Up")).length;
 
         return (
           <Card 
-            key={pool.state} 
+            key={state} 
             className={`h-fit transition-all duration-300 hover:shadow-xl border-l-4 ${colorScheme.border} bg-gradient-to-br ${colorScheme.bg} hover:scale-[1.02]`}
           >
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <Link href={getStateRoute(program, pool.state)} className="flex-1">
+                <Link href={getStateRoute(program, state)} className="flex-1">
                   <CardTitle className="flex items-center gap-2 text-lg hover:text-primary transition-colors">
                     <div className={`p-1.5 rounded-md ${colorScheme.accent} text-white`}>
                       <MapPin className="h-3.5 w-3.5" />
                     </div>
-                    {pool.state}
+                    {state}
                   </CardTitle>
                 </Link>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => toggleExpanded(pool.state)}
+                  onClick={() => toggleExpanded(state)}
                   className="h-8 w-8 p-0 hover:bg-white/50"
                 >
                   {isExpanded ? (
@@ -120,63 +138,86 @@ export function StateGrid({
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-2 mb-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-2xl font-bold">{visibleUsers.length}</span>
-                <span className="text-sm text-muted-foreground">users</span>
-                {excludedInState > 0 && !showExcluded && (
-                  <Badge className="text-xs ml-auto bg-amber-500 hover:bg-amber-600 text-white">
-                    +{excludedInState} excluded
-                  </Badge>
-                )}
+              {/* Initial and Follow Up counts */}
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div className="bg-white/60 rounded-lg p-2 border border-emerald-200">
+                  <div className="flex items-center gap-1 text-xs text-emerald-700 font-medium mb-1">
+                    <UserPlus2 className="h-3 w-3" />
+                    Initial
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xl font-bold text-emerald-800">{visibleInitial.length}</span>
+                    {excludedInitial > 0 && !showExcluded && (
+                      <Badge className="text-[10px] bg-amber-500 text-white px-1">+{excludedInitial}</Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white/60 rounded-lg p-2 border border-blue-200">
+                  <div className="flex items-center gap-1 text-xs text-blue-700 font-medium mb-1">
+                    <RefreshCw className="h-3 w-3" />
+                    Follow Up
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xl font-bold text-blue-800">{visibleFollowUp.length}</span>
+                    {excludedFollowUp > 0 && !showExcluded && (
+                      <Badge className="text-[10px] bg-amber-500 text-white px-1">+{excludedFollowUp}</Badge>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Expandable user list */}
               {isExpanded && (
-                <div className="mt-3 pt-3 border-t border-white/50 space-y-1 max-h-64 overflow-y-auto">
-                  {filteredUsers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No users match your search</p>
-                  ) : (
-                    filteredUsers.map((user, idx) => {
-                      const excluded = isExcluded(user, pool.state, program);
-                      return (
-                        <div
-                          key={`${user}-${idx}`}
-                          className={`flex items-center justify-between gap-2 p-2 rounded-md text-sm transition-colors ${
-                            excluded 
-                              ? "bg-amber-100/80 border border-amber-300" 
-                              : "bg-white/60 hover:bg-white/80"
-                          }`}
-                        >
-                          <span className={excluded ? "text-amber-700 line-through" : "font-medium"}>
-                            {user}
-                          </span>
-                          <Button
-                            variant={excluded ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => toggleExcluded(user, pool.state, program)}
-                            className={`h-6 px-2 text-xs ${
-                              excluded 
-                                ? "bg-emerald-500 hover:bg-emerald-600 text-white" 
-                                : "border-amber-400 text-amber-700 hover:bg-amber-100"
-                            }`}
-                          >
-                            {excluded ? (
-                              <>
-                                <UserPlus className="h-3 w-3 mr-1" />
-                                Include
-                              </>
-                            ) : (
-                              <>
-                                <UserMinus className="h-3 w-3 mr-1" />
-                                Exclude
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      );
-                    })
-                  )}
+                <div className="mt-3 pt-3 border-t border-white/50 space-y-3 max-h-80 overflow-y-auto">
+                  {/* Initial Users */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-emerald-700 flex items-center gap-1 mb-2">
+                      <UserPlus2 className="h-3 w-3" />
+                      Initial (New Patient)
+                    </h4>
+                    {visibleInitial.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No users</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {visibleInitial.map((user, idx) => {
+                          const excluded = isExcluded(user, state, program, "Initial");
+                          return (
+                            <UserRow
+                              key={`initial-${user}-${idx}`}
+                              user={user}
+                              excluded={excluded}
+                              onToggle={() => toggleExcluded(user, state, program, "Initial")}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Follow Up Users */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-blue-700 flex items-center gap-1 mb-2">
+                      <RefreshCw className="h-3 w-3" />
+                      Follow Up
+                    </h4>
+                    {visibleFollowUp.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No users</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {visibleFollowUp.map((user, idx) => {
+                          const excluded = isExcluded(user, state, program, "Follow Up");
+                          return (
+                            <UserRow
+                              key={`followup-${user}-${idx}`}
+                              user={user}
+                              excluded={excluded}
+                              onToggle={() => toggleExcluded(user, state, program, "Follow Up")}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -184,7 +225,7 @@ export function StateGrid({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => toggleExpanded(pool.state)}
+                  onClick={() => toggleExpanded(state)}
                   className="w-full mt-2 text-xs text-muted-foreground hover:bg-white/50"
                 >
                   Click to show users
@@ -194,6 +235,52 @@ export function StateGrid({
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+function UserRow({ 
+  user, 
+  excluded, 
+  onToggle 
+}: { 
+  user: string; 
+  excluded: boolean; 
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 p-2 rounded-md text-sm transition-colors ${
+        excluded 
+          ? "bg-amber-100/80 border border-amber-300" 
+          : "bg-white/60 hover:bg-white/80"
+      }`}
+    >
+      <span className={excluded ? "text-amber-700 line-through" : "font-medium"}>
+        {user}
+      </span>
+      <Button
+        variant={excluded ? "default" : "outline"}
+        size="sm"
+        onClick={onToggle}
+        className={`h-6 px-2 text-xs ${
+          excluded 
+            ? "bg-emerald-500 hover:bg-emerald-600 text-white" 
+            : "border-amber-400 text-amber-700 hover:bg-amber-100"
+        }`}
+      >
+        {excluded ? (
+          <>
+            <UserPlus className="h-3 w-3 mr-1" />
+            Include
+          </>
+        ) : (
+          <>
+            <UserMinus className="h-3 w-3 mr-1" />
+            Exclude
+          </>
+        )}
+      </Button>
     </div>
   );
 }

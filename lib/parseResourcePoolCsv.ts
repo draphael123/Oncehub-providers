@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { ResourcePool, Program } from "./types";
+import { ResourcePool, Program, VisitType } from "./types";
 import { normalizeUserName, isValidUser, dedupeUsers } from "./normalize";
 
 /**
@@ -18,10 +18,19 @@ function shouldIgnoreHeader(header: string): boolean {
 }
 
 /**
+ * Determine visit type from the second row header
+ */
+function getVisitType(label: string): VisitType {
+  const lower = (label || "").toLowerCase().trim();
+  if (lower.includes("follow")) return "Follow Up";
+  return "Initial"; // Default to Initial
+}
+
+/**
  * Parse CSV content into ResourcePool array.
  * Handles format where:
- * - Row 1: State names (some columns empty for Initial/Follow up pairs)
- * - Row 2: "Initial"/"Follow up" labels (skipped)
+ * - Row 1: State names (alternating with empty for Initial/Follow up pairs)
+ * - Row 2: "Initial"/"Follow up" labels
  * - Row 3+: Provider names
  * 
  * @param csvContent - Raw CSV string content
@@ -45,17 +54,19 @@ export function parseResourcePoolCsv(csvContent: string, program: Program): Reso
 
   // First row is state headers
   const headerRow = rows[0];
-  // Second row is Initial/Follow up labels - skip it
+  // Second row is Initial/Follow up labels
+  const visitTypeRow = rows[1];
   // Data starts from row 3 (index 2)
   const dataRows = rows.slice(2);
 
-  // Build a map of column index -> state name
-  // For empty headers, inherit from the previous non-empty header (for Initial/Follow up pairs)
-  const columnToState: Map<number, string> = new Map();
+  // Build a map of column index -> { state, visitType }
+  const columnMap: Map<number, { state: string; visitType: VisitType }> = new Map();
   let lastValidState = "";
 
   headerRow.forEach((header, index) => {
     const trimmed = header?.trim() || "";
+    const visitTypeLabel = visitTypeRow[index] || "";
+    const visitType = getVisitType(visitTypeLabel);
     
     if (!shouldIgnoreHeader(trimmed) && trimmed !== "") {
       // Clean up state name (remove trailing parenthetical notes)
@@ -65,21 +76,22 @@ export function parseResourcePoolCsv(csvContent: string, program: Program): Reso
         .trim();
       
       lastValidState = stateName;
-      columnToState.set(index, stateName);
+      columnMap.set(index, { state: stateName, visitType });
     } else if (trimmed === "" && lastValidState) {
       // Empty column after a state - this is the "Follow up" column for that state
-      columnToState.set(index, lastValidState);
+      columnMap.set(index, { state: lastValidState, visitType });
     }
   });
 
-  // Collect users per state
+  // Collect users per state+visitType
+  const poolKey = (state: string, visitType: VisitType) => `${state}|${visitType}`;
   const stateUsersMap: Map<string, string[]> = new Map();
 
   // Process each data row
   dataRows.forEach((row) => {
     if (!row || row.length === 0) return;
     
-    columnToState.forEach((state, colIndex) => {
+    columnMap.forEach(({ state, visitType }, colIndex) => {
       const cellValue = row[colIndex];
       if (cellValue !== undefined && cellValue !== null) {
         const normalized = normalizeUserName(String(cellValue));
@@ -92,33 +104,40 @@ export function parseResourcePoolCsv(csvContent: string, program: Program): Reso
         // Skip entries that look like legend/key text
         if (lower.includes("pending") || lower.includes("provider has") || lower.includes("license")) return;
         
-        // Get or create the users array for this state
-        if (!stateUsersMap.has(state)) {
-          stateUsersMap.set(state, []);
+        // Get or create the users array for this state+visitType
+        const key = poolKey(state, visitType);
+        if (!stateUsersMap.has(key)) {
+          stateUsersMap.set(key, []);
         }
-        stateUsersMap.get(state)!.push(normalized);
+        stateUsersMap.get(key)!.push(normalized);
       }
     });
   });
 
   // Convert map to array of ResourcePool objects
   const resourcePools: ResourcePool[] = [];
-  stateUsersMap.forEach((users, state) => {
-    // De-duplicate users within each state
+  stateUsersMap.forEach((users, key) => {
+    const [state, visitType] = key.split("|") as [string, VisitType];
+    // De-duplicate users within each pool
     const dedupedUsers = dedupeUsers(users);
     
-    // Only include states with at least one user
+    // Only include pools with at least one user
     if (dedupedUsers.length > 0) {
       resourcePools.push({
         program,
         state,
+        visitType,
         users: dedupedUsers,
       });
     }
   });
 
-  // Sort by state name
-  resourcePools.sort((a, b) => a.state.localeCompare(b.state));
+  // Sort by state name, then visit type
+  resourcePools.sort((a, b) => {
+    const stateCompare = a.state.localeCompare(b.state);
+    if (stateCompare !== 0) return stateCompare;
+    return a.visitType === "Initial" ? -1 : 1;
+  });
 
   return resourcePools;
 }
@@ -129,15 +148,20 @@ export function parseResourcePoolCsv(csvContent: string, program: Program): Reso
 export function getUsersForState(
   resourcePools: ResourcePool[],
   state: string,
+  visitType?: VisitType,
   showDuplicates: boolean = false
 ): string[] {
-  const pool = resourcePools.find((p) => p.state === state);
-  if (!pool) return [];
+  let pools = resourcePools.filter((p) => p.state === state);
+  if (visitType) {
+    pools = pools.filter((p) => p.visitType === visitType);
+  }
+  
+  const allUsers = pools.flatMap((p) => p.users);
   
   if (showDuplicates) {
-    return pool.users;
+    return allUsers;
   }
-  return dedupeUsers(pool.users);
+  return dedupeUsers(allUsers);
 }
 
 /**
@@ -145,21 +169,46 @@ export function getUsersForState(
  */
 export function getAllUsers(
   resourcePools: ResourcePool[]
-): { name: string; state: string }[] {
-  const allUsers: { name: string; state: string }[] = [];
+): { name: string; state: string; visitType: VisitType }[] {
+  const allUsers: { name: string; state: string; visitType: VisitType }[] = [];
   
   resourcePools.forEach((pool) => {
     pool.users.forEach((user) => {
-      allUsers.push({ name: user, state: pool.state });
+      allUsers.push({ name: user, state: pool.state, visitType: pool.visitType });
     });
   });
 
-  // Sort by name, then by state
+  // Sort by name, then by state, then by visit type
   allUsers.sort((a, b) => {
     const nameCompare = a.name.localeCompare(b.name);
     if (nameCompare !== 0) return nameCompare;
-    return a.state.localeCompare(b.state);
+    const stateCompare = a.state.localeCompare(b.state);
+    if (stateCompare !== 0) return stateCompare;
+    return a.visitType === "Initial" ? -1 : 1;
   });
 
   return allUsers;
+}
+
+/**
+ * Group resource pools by state (combining Initial and Follow Up)
+ */
+export function groupPoolsByState(
+  resourcePools: ResourcePool[]
+): Map<string, { initial: ResourcePool | null; followUp: ResourcePool | null }> {
+  const stateMap = new Map<string, { initial: ResourcePool | null; followUp: ResourcePool | null }>();
+  
+  resourcePools.forEach((pool) => {
+    if (!stateMap.has(pool.state)) {
+      stateMap.set(pool.state, { initial: null, followUp: null });
+    }
+    const entry = stateMap.get(pool.state)!;
+    if (pool.visitType === "Initial") {
+      entry.initial = pool;
+    } else {
+      entry.followUp = pool;
+    }
+  });
+  
+  return stateMap;
 }
